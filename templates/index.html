@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IOC Collector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0F14;
+    --panel:#131920;
+    --panel-2:#171E26;
+    --border:#232B35;
+    --text:#E6EAEF;
+    --text-dim:#8A94A3;
+    --text-faint:#5A6472;
+    --amber:#F0A868;
+    --amber-dim:#8A6A48;
+    --teal:#5EC8B8;
+    --danger:#E0555F;
+    --success:#5FBF77;
+    --radius:8px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'IBM Plex Sans', sans-serif;
+    min-height:100vh;
+  }
+  .mono{font-family:'IBM Plex Mono', monospace;}
+  .wrap{max-width:1280px; margin:0 auto; padding:28px 24px 60px;}
+
+  /* Topbar */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding-bottom:22px; border-bottom:1px solid var(--border); margin-bottom:24px;
+  }
+  .brand{display:flex; align-items:center; gap:12px;}
+  .brand-mark{
+    width:34px; height:34px; border-radius:7px;
+    background:linear-gradient(135deg, var(--amber), var(--teal));
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Space Grotesk', sans-serif; font-weight:700; color:#0B0F14; font-size:15px;
+  }
+  .brand h1{
+    font-family:'Space Grotesk', sans-serif; font-size:19px; font-weight:600;
+    letter-spacing:0.2px;
+  }
+  .brand span{color:var(--text-dim); font-size:12px; display:block; margin-top:1px;}
+
+  .actions{display:flex; gap:10px; align-items:center;}
+  .btn{
+    font-family:'IBM Plex Sans', sans-serif; font-size:13px; font-weight:500;
+    padding:9px 16px; border-radius:6px; border:1px solid var(--border);
+    background:var(--panel); color:var(--text); cursor:pointer;
+    display:flex; align-items:center; gap:7px; transition:all .15s ease;
+  }
+  .btn:hover{border-color:var(--text-faint); background:var(--panel-2);}
+  .btn-primary{
+    background:var(--amber); color:#1A1408; border-color:var(--amber); font-weight:600;
+  }
+  .btn-primary:hover{background:#f5b578; border-color:#f5b578;}
+  .btn:disabled{opacity:.5; cursor:not-allowed;}
+  .dot{width:6px; height:6px; border-radius:50%; background:currentColor;}
+
+  /* Stat cards */
+  .stats-row{
+    display:grid; grid-template-columns:1.1fr 1.4fr 1.4fr; gap:14px; margin-bottom:20px;
+  }
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    padding:16px 18px;
+  }
+  .card-label{
+    font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-faint);
+    margin-bottom:10px; font-weight:500;
+  }
+  .big-num{
+    font-family:'Space Grotesk', sans-serif; font-size:32px; font-weight:600; color:var(--text);
+  }
+  .big-num small{font-size:13px; color:var(--text-dim); font-weight:400; margin-left:6px;}
+
+  .type-bars{display:flex; flex-direction:column; gap:7px;}
+  .type-row{display:flex; align-items:center; gap:10px; font-size:12px;}
+  .type-name{width:56px; color:var(--text-dim); font-family:'IBM Plex Mono', monospace;}
+  .type-track{flex:1; height:6px; background:var(--panel-2); border-radius:3px; overflow:hidden;}
+  .type-fill{height:100%; border-radius:3px; background:var(--teal);}
+  .type-count{width:46px; text-align:right; color:var(--text-dim); font-family:'IBM Plex Mono', monospace;}
+
+  .feed-list{display:flex; flex-direction:column; gap:8px;}
+  .feed-row{display:flex; align-items:center; justify-content:space-between; font-size:12.5px;}
+  .feed-name{display:flex; align-items:center; gap:8px; color:var(--text);}
+  .feed-count{color:var(--text-dim); font-family:'IBM Plex Mono', monospace;}
+  .status-dot{width:7px; height:7px; border-radius:50%; background:var(--success); box-shadow:0 0 6px var(--success);}
+  .status-dot.off{background:var(--text-faint); box-shadow:none;}
+
+  /* Filters */
+  .filters{
+    display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center;
+  }
+  .filters select, .filters input{
+    background:var(--panel); border:1px solid var(--border); color:var(--text);
+    padding:8px 12px; border-radius:6px; font-size:13px; font-family:'IBM Plex Sans', sans-serif;
+  }
+  .filters input{flex:1; min-width:200px;}
+  .filters select:focus, .filters input:focus{outline:none; border-color:var(--amber-dim);}
+  .result-count{font-size:12px; color:var(--text-faint); margin-left:auto;}
+
+  /* Table */
+  .table-wrap{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    overflow:hidden;
+  }
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  thead th{
+    text-align:left; padding:11px 16px; font-size:10.5px; text-transform:uppercase;
+    letter-spacing:0.5px; color:var(--text-faint); font-weight:600;
+    border-bottom:1px solid var(--border); background:var(--panel-2);
+  }
+  tbody td{
+    padding:10px 16px; border-bottom:1px solid var(--border); vertical-align:middle;
+  }
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--panel-2);}
+  .ioc-val{font-family:'IBM Plex Mono', monospace; font-size:12.5px; color:var(--text);
+    max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .badge{
+    font-family:'IBM Plex Mono', monospace; font-size:10.5px; padding:2.5px 8px;
+    border-radius:4px; text-transform:uppercase; letter-spacing:0.3px; font-weight:600;
+  }
+  .badge-ip{background:rgba(94,200,184,.14); color:var(--teal);}
+  .badge-url{background:rgba(240,168,104,.14); color:var(--amber);}
+  .badge-hash{background:rgba(224,85,95,.14); color:var(--danger);}
+  .badge-domain{background:rgba(138,148,163,.14); color:var(--text-dim);}
+  .feed-tag{font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--text-dim);}
+
+  /* confidence mini-bar: signature element */
+  .conf-wrap{display:flex; align-items:center; gap:8px;}
+  .conf-segs{display:flex; gap:2px;}
+  .seg{width:8px; height:9px; border-radius:1.5px; background:var(--panel-2); border:1px solid var(--border);}
+  .seg.filled{background:var(--amber); border-color:var(--amber);}
+  .conf-num{font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--text-dim); width:26px;}
+
+  .last-seen{font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--text-faint);}
+
+  /* Pagination */
+  .pagination{
+    display:flex; align-items:center; justify-content:center; gap:6px; padding:16px;
+  }
+  .page-btn{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim);
+    padding:6px 12px; border-radius:5px; font-size:12px; cursor:pointer; font-family:'IBM Plex Mono', monospace;
+  }
+  .page-btn:hover:not(:disabled){border-color:var(--text-faint); color:var(--text);}
+  .page-btn:disabled{opacity:.4; cursor:not-allowed;}
+  .page-info{font-size:12px; color:var(--text-faint); padding:0 10px; font-family:'IBM Plex Mono', monospace;}
+
+  .empty-state{padding:60px 20px; text-align:center; color:var(--text-faint); font-size:13px;}
+
+  .toast{
+    position:fixed; bottom:22px; right:22px; background:var(--panel); border:1px solid var(--border);
+    border-left:3px solid var(--amber); border-radius:6px; padding:13px 18px; font-size:13px;
+    box-shadow:0 8px 24px rgba(0,0,0,.4); display:none; max-width:340px;
+  }
+  .toast.show{display:block;}
+  .toast.error{border-left-color:var(--danger);}
+
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .spinner{
+    width:13px; height:13px; border:2px solid rgba(255,255,255,.25); border-top-color:#1A1408;
+    border-radius:50%; animation:spin .6s linear infinite; display:none;
+  }
+  .btn-primary.loading .spinner{display:inline-block;}
+  .btn-primary.loading .btn-label{display:none;}
+
+  @media (max-width:900px){
+    .stats-row{grid-template-columns:1fr;}
+    .ioc-val{max-width:160px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">IOC</div>
+      <div>
+        <h1>IOC Collector</h1>
+        <span>Open-source threat intel aggregation</span>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="exportCsvBtn">↓ CSV</button>
+      <button class="btn" id="exportJsonBtn">↓ JSON</button>
+      <button class="btn btn-primary" id="fetchBtn">
+        <span class="spinner"></span>
+        <span class="btn-label">⟳ Fetch feeds</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="card">
+      <div class="card-label">Total IOCs</div>
+      <div class="big-num" id="totalCount">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">By Type</div>
+      <div class="type-bars" id="typeBars"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Feed Coverage</div>
+      <div class="feed-list" id="feedList"></div>
+    </div>
+  </div>
+
+  <div class="filters">
+    <select id="typeFilter">
+      <option value="">All types</option>
+      <option value="ip">IP</option>
+      <option value="url">URL</option>
+      <option value="hash">Hash</option>
+      <option value="domain">Domain</option>
+    </select>
+    <select id="feedFilter">
+      <option value="">All feeds</option>
+      <option value="feodo">Feodo</option>
+      <option value="urlhaus">URLhaus</option>
+      <option value="malwarebazaar">MalwareBazaar</option>
+      <option value="spamhaus">Spamhaus</option>
+    </select>
+    <input type="text" id="searchInput" placeholder="Search IOC value...">
+    <span class="result-count" id="resultCount"></span>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>IOC Value</th>
+          <th>Type</th>
+          <th>Feed(s)</th>
+          <th>Confidence</th>
+          <th>Last Seen</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+    <div class="empty-state" id="emptyState" style="display:none;">
+      No IOCs yet — click <strong>Fetch feeds</strong> to pull the latest indicators.
+    </div>
+  </div>
+
+  <div class="pagination" id="pagination"></div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const state = { page: 1, per_page: 50, type: "", feed: "", search: "" };
+let searchDebounce = null;
+
+const typeColors = { ip: "var(--teal)", url: "var(--amber)", hash: "var(--danger)", domain: "var(--text-dim)" };
+
+function showToast(msg, isError=false){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (isError ? " error" : "");
+  setTimeout(()=> t.classList.remove("show"), 4200);
+}
+
+function badgeClass(type){
+  return "badge badge-" + (["ip","url","hash","domain"].includes(type) ? type : "domain");
+}
+
+function confidenceBar(score){
+  const filled = Math.round((score||0) / 25);
+  let segs = "";
+  for(let i=0;i<4;i++){
+    segs += `<div class="seg ${i < filled ? 'filled' : ''}"></div>`;
+  }
+  return `<div class="conf-wrap"><div class="conf-segs">${segs}</div><span class="conf-num">${score||0}</span></div>`;
+}
+
+function formatDate(iso){
+  if(!iso) return "—";
+  try{
+    const d = new Date(iso);
+    return d.toISOString().slice(0,16).replace("T"," ");
+  }catch(e){ return iso; }
+}
+
+async function loadStats(){
+  const res = await fetch("/api/stats");
+  const data = await res.json();
+
+  document.getElementById("totalCount").innerHTML =
+    data.total.toLocaleString() + (data.total ? "" : "");
+
+  const maxType = Math.max(1, ...Object.values(data.by_type));
+  const typeBars = document.getElementById("typeBars");
+  typeBars.innerHTML = "";
+  const order = ["ip","url","hash","domain"];
+  order.forEach(t => {
+    const count = data.by_type[t] || 0;
+    if(count === 0 && !(t in data.by_type)) return;
+    typeBars.innerHTML += `
+      <div class="type-row">
+        <span class="type-name">${t}</span>
+        <div class="type-track"><div class="type-fill" style="width:${(count/maxType*100)}%; background:${typeColors[t]||'var(--teal)'}"></div></div>
+        <span class="type-count">${count.toLocaleString()}</span>
+      </div>`;
+  });
+
+  const feedList = document.getElementById("feedList");
+  feedList.innerHTML = "";
+  Object.entries(data.by_feed).forEach(([name, count]) => {
+    feedList.innerHTML += `
+      <div class="feed-row">
+        <span class="feed-name"><span class="status-dot ${count>0?'':'off'}"></span>${name}</span>
+        <span class="feed-count">${count.toLocaleString()}</span>
+      </div>`;
+  });
+}
+
+async function loadTable(){
+  const params = new URLSearchParams({
+    page: state.page, per_page: state.per_page,
+    type: state.type, feed: state.feed, search: state.search
+  });
+  const res = await fetch("/api/iocs?" + params.toString());
+  const data = await res.json();
+
+  const tbody = document.getElementById("tableBody");
+  const emptyState = document.getElementById("emptyState");
+
+  if(data.items.length === 0){
+    tbody.innerHTML = "";
+    emptyState.style.display = "block";
+  } else {
+    emptyState.style.display = "none";
+    tbody.innerHTML = data.items.map(ioc => `
+      <tr>
+        <td><div class="ioc-val" title="${escapeHtml(ioc.ioc_value)}">${escapeHtml(ioc.ioc_value)}</div></td>
+        <td><span class="${badgeClass(ioc.ioc_type)}">${ioc.ioc_type}</span></td>
+        <td><span class="feed-tag">${escapeHtml(ioc.source_feed || "")}</span></td>
+        <td>${confidenceBar(ioc.confidence_score)}</td>
+        <td><span class="last-seen">${formatDate(ioc.last_seen)}</span></td>
+      </tr>
+    `).join("");
+  }
+
+  document.getElementById("resultCount").textContent =
+    data.total.toLocaleString() + " result" + (data.total===1?"":"s");
+
+  renderPagination(data.page, data.total_pages);
+}
+
+function escapeHtml(s){
+  const div = document.createElement("div");
+  div.textContent = s ?? "";
+  return div.innerHTML;
+}
+
+function renderPagination(page, totalPages){
+  const el = document.getElementById("pagination");
+  if(totalPages <= 1){ el.innerHTML = ""; return; }
+  el.innerHTML = `
+    <button class="page-btn" id="prevBtn" ${page<=1?"disabled":""}>← Prev</button>
+    <span class="page-info">Page ${page} / ${totalPages}</span>
+    <button class="page-btn" id="nextBtn" ${page>=totalPages?"disabled":""}>Next →</button>
+  `;
+  document.getElementById("prevBtn")?.addEventListener("click", ()=>{ state.page--; loadTable(); });
+  document.getElementById("nextBtn")?.addEventListener("click", ()=>{ state.page++; loadTable(); });
+}
+
+async function refreshAll(){
+  await Promise.all([loadStats(), loadTable()]);
+}
+
+document.getElementById("typeFilter").addEventListener("change", e=>{
+  state.type = e.target.value; state.page = 1; loadTable();
+});
+document.getElementById("feedFilter").addEventListener("change", e=>{
+  state.feed = e.target.value; state.page = 1; loadTable();
+});
+document.getElementById("searchInput").addEventListener("input", e=>{
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(()=>{
+    state.search = e.target.value; state.page = 1; loadTable();
+  }, 350);
+});
+
+document.getElementById("fetchBtn").addEventListener("click", async ()=>{
+  const btn = document.getElementById("fetchBtn");
+  btn.classList.add("loading");
+  btn.disabled = true;
+  try{
+    const res = await fetch("/api/fetch", { method:"POST" });
+    const data = await res.json();
+    if(data.status === "ok"){
+      showToast(`Fetched ${data.normalized_count.toLocaleString()} IOCs → ${data.total_in_db.toLocaleString()} total in DB`);
+      await refreshAll();
+    } else {
+      showToast("Fetch failed: " + data.message, true);
+    }
+  } catch(e){
+    showToast("Fetch failed: " + e.message, true);
+  } finally {
+    btn.classList.remove("loading");
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("exportCsvBtn").addEventListener("click", ()=>{
+  window.location.href = "/api/export?format=csv";
+});
+document.getElementById("exportJsonBtn").addEventListener("click", ()=>{
+  window.location.href = "/api/export?format=json";
+});
+
+refreshAll();
+</script>
+</body>
+</html>
