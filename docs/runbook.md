@@ -8,6 +8,11 @@ and are applied the same way as the project's existing TALON IOC
 Collector detection rules (via `docker cp`, after the Manager reaches a healthy
 state — see `docs/DEPLOYMENT_GUIDE.md`).
 
+> **Looking for a step-by-step walkthrough** (which machine to run
+> each script from, exact commands, troubleshooting)? See
+> [`docs/SIMULATION_GUIDE.md`](SIMULATION_GUIDE.md). This runbook is
+> the technical reference (rule IDs, design assumptions).
+
 ## Rule IDs & Expected Alerts
 
 | Rule ID | Scenario | Level | Base rule it builds on | Fires when |
