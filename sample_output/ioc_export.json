@@ -1,0 +1,75 @@
+[
+  {
+    "id": 5,
+    "ioc_value": "192.168.1.0/24",
+    "ioc_type": "ip",
+    "source_feed": "spamhaus",
+    "first_seen": "2026-08-09T05:01:23.967659+00:00",
+    "last_seen": "2026-08-09T05:01:23.967659+00:00",
+    "confidence_score": 25,
+    "tags": [
+      "SBL12345"
+    ]
+  },
+  {
+    "id": 6,
+    "ioc_value": "10.0.0.0/8",
+    "ioc_type": "ip",
+    "source_feed": "spamhaus",
+    "first_seen": "2026-08-09T05:01:23.967659+00:00",
+    "last_seen": "2026-08-09T05:01:23.967659+00:00",
+    "confidence_score": 25,
+    "tags": [
+      "test"
+    ]
+  },
+  {
+    "id": 3,
+    "ioc_value": "http://bad2.com/x",
+    "ioc_type": "url",
+    "source_feed": "urlhaus",
+    "first_seen": "2024-01-16T10:00:00",
+    "last_seen": "2024-01-16T10:00:00",
+    "confidence_score": 25,
+    "tags": [
+      "phishing"
+    ]
+  },
+  {
+    "id": 2,
+    "ioc_value": "http://evil.com/m.exe",
+    "ioc_type": "url",
+    "source_feed": "urlhaus",
+    "first_seen": "2024-01-15T10:00:00",
+    "last_seen": "2024-01-15T10:00:00",
+    "confidence_score": 25,
+    "tags": [
+      "malware_download",
+      "exe"
+    ]
+  },
+  {
+    "id": 4,
+    "ioc_value": "abc123",
+    "ioc_type": "hash",
+    "source_feed": "malwarebazaar",
+    "first_seen": "2024-01-15T10:00:00",
+    "last_seen": "2024-01-15T10:00:00",
+    "confidence_score": 25,
+    "tags": [
+      "TrojanX"
+    ]
+  },
+  {
+    "id": 1,
+    "ioc_value": "1.2.3.4",
+    "ioc_type": "ip",
+    "source_feed": "feodo",
+    "first_seen": "2024-01-15T00:00:00",
+    "last_seen": "2024-01-15T00:00:00",
+    "confidence_score": 25,
+    "tags": [
+      "dridex"
+    ]
+  }
+]
