@@ -1,0 +1,346 @@
+#!/bin/bash
+# ============================================================
+# FAST - Unified Operations CLI
+# ============================================================
+#
+# A single management entrypoint for the FAST stack, conceptually
+# similar to `systemctl`:
+#
+#   ./bin/fast up        deploy/start FAST (delegates to deploy.sh)
+#   ./bin/fast down      stop FAST, preserve all persistent data
+#   ./bin/fast restart   down + up (data preserved)
+#   ./bin/fast status    show Wazuh + IOC Collector health
+#
+# DESIGN NOTES (read before modifying):
+#   - This script does NOT reimplement Wazuh deployment. `up` calls
+#     the project's existing ./deploy.sh, which already performs
+#     prerequisite checks, Wazuh deployment, the first IOC collection
+#     run, and health verification. deploy.sh is treated as the
+#     single source of truth for "how FAST is deployed."
+#   - Container names (single-node-wazuh.manager-1, etc.) and the
+#     Wazuh health definition (wazuh-authd/analysisd/remoted running,
+#     no CRITICAL log lines) mirror deploy.sh's own
+#     wait_for_manager_healthy() so `status` reports the same notion
+#     of "healthy" that the deployment script itself uses.
+#   - `down` intentionally never runs `docker compose down -v` (which
+#     would delete named volumes / persistent data). Only a plain
+#     `docker compose down` is used, exactly as already documented in
+#     docs/DEPLOYMENT_GUIDE.md's "Stopping / Removing" section.
+#   - IOC Collector has no long-running container by design (it's
+#     invoked with `docker run --rm` for each collection cycle by
+#     deploy.sh / refresh_iocs.sh). `status` therefore reports it in
+#     terms of what actually exists: the Docker image, the SQLite
+#     database, IOC count, and the most recent IOC timestamp - not a
+#     fabricated "process" status.
+#
+# USAGE: ./bin/fast <up|down|restart|status> [options]
+#   ./bin/fast up [--ip <IP>]   options are forwarded to deploy.sh
+#   ./bin/fast --help
+# ============================================================
+
+set -Eeuo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WAZUH_COMPOSE_DIR="$PROJECT_ROOT/wazuh-docker/single-node"
+MANAGER_CONTAINER="single-node-wazuh.manager-1"
+INDEXER_CONTAINER="single-node-wazuh.indexer-1"
+DASHBOARD_CONTAINER="single-node-wazuh.dashboard-1"
+IOC_IMAGE="osint-ioc-collector"
+DB_FILE="$PROJECT_ROOT/ioc_database.db"
+
+trap 'echo "[FAST] ERROR: command failed at line $LINENO. Aborting." >&2' ERR
+
+# ------------------------------------------------------------
+# Low-level helpers
+# ------------------------------------------------------------
+
+docker_available() {
+    command -v docker >/dev/null 2>&1
+}
+
+docker_daemon_up() {
+    docker_available && docker info >/dev/null 2>&1
+}
+
+require_docker() {
+    if ! docker_available; then
+        echo "[FAST] ERROR: Docker is not installed. See: https://docs.docker.com/engine/install/" >&2
+        exit 1
+    fi
+    if ! docker_daemon_up; then
+        echo "[FAST] ERROR: Docker is installed but the daemon is not running (or not accessible)." >&2
+        exit 1
+    fi
+}
+
+# Prints one of: running | exited | not_found | docker_unavailable
+container_state() {
+    local name="$1"
+    if ! docker_daemon_up; then
+        echo "docker_unavailable"
+        return
+    fi
+    local state
+    if state=$(docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null); then
+        echo "$state"
+    else
+        echo "not_found"
+    fi
+}
+
+# Mirrors deploy.sh's wait_for_manager_healthy() health definition,
+# but as a single one-shot check (no retry loop) for status reporting.
+manager_process_health() {
+    if [ "$(container_state "$MANAGER_CONTAINER")" != "running" ]; then
+        echo "unreachable"
+        return
+    fi
+    local critical_errors proc_count
+    critical_errors=$(docker logs "$MANAGER_CONTAINER" 2>&1 | grep -c "CRITICAL" || true)
+    proc_count=$(docker exec "$MANAGER_CONTAINER" ps aux 2>/dev/null | grep -cE "wazuh-authd|wazuh-analysisd|wazuh-remoted" || true)
+    if [ "$critical_errors" -eq 0 ] && [ "$proc_count" -ge 3 ]; then
+        echo "healthy"
+    else
+        echo "unhealthy"
+    fi
+}
+
+# Reuses core/db.py directly (no duplicated DB logic) to report real
+# IOC counts and the most recent IOC timestamp.
+ioc_db_summary() {
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "N/A|N/A"
+        return
+    fi
+    python3 - "$PROJECT_ROOT" "$DB_FILE" <<'PYEOF' 2>/dev/null || echo "N/A|N/A"
+import sys
+project_root, db_file = sys.argv[1], sys.argv[2]
+sys.path.insert(0, project_root)
+from core import db
+db.DB_PATH = db_file
+try:
+    count = db.get_count()
+    rows = db.get_all_iocs()
+    last_seen = rows[0]["last_seen"] if rows else "N/A"
+    print(f"{count}|{last_seen}")
+except Exception:
+    print("N/A|N/A")
+PYEOF
+}
+
+# ------------------------------------------------------------
+# Commands
+# ------------------------------------------------------------
+
+cmd_up() {
+    require_docker
+    echo "[FAST] Starting FAST..."
+    echo ""
+    echo "[1/2] Deploying Wazuh + IOC Collector (running deploy.sh)..."
+    echo "------------------------------------------------------------"
+    if ( cd "$PROJECT_ROOT" && ./deploy.sh "$@" ); then
+        echo "------------------------------------------------------------"
+        echo "[OK] deploy.sh completed"
+    else
+        echo "------------------------------------------------------------"
+        echo "[FAIL] deploy.sh exited with an error. FAST is NOT fully up." >&2
+        exit 1
+    fi
+
+    echo ""
+    echo "[2/2] Verifying services..."
+    echo ""
+    cmd_status
+
+    echo ""
+    echo "FAST is UP."
+}
+
+cmd_down() {
+    require_docker
+    echo "[FAST] Stopping FAST..."
+    echo ""
+
+    local ioc_running
+    ioc_running=$(docker ps --filter "ancestor=$IOC_IMAGE" --format '{{.ID}}' 2>/dev/null || true)
+    if [ -n "$ioc_running" ]; then
+        # shellcheck disable=SC2086
+        docker stop $ioc_running >/dev/null
+        echo "[OK] IOC Collector stopped"
+    else
+        echo "[OK] IOC Collector was not running (it only runs on-demand, no persistent process)"
+    fi
+
+    if [ -d "$WAZUH_COMPOSE_DIR" ]; then
+        (cd "$WAZUH_COMPOSE_DIR" && docker compose down)
+        echo "[OK] Wazuh stopped"
+    else
+        echo "[--] Wazuh has not been deployed yet (nothing to stop)"
+    fi
+
+    echo ""
+    echo "Persistent data preserved (named Docker volumes are not touched;"
+    echo "'docker compose down' is used WITHOUT -v)."
+    echo ""
+    echo "FAST is DOWN."
+}
+
+cmd_restart() {
+    echo "[FAST] Restarting FAST..."
+    echo ""
+    cmd_down
+    echo ""
+    cmd_up "$@"
+    echo ""
+    echo "FAST restart completed."
+}
+
+cmd_status() {
+    echo "FAST STATUS"
+    echo "================================="
+    echo ""
+
+    if ! docker_daemon_up; then
+        if ! docker_available; then
+            echo "Docker:              NOT INSTALLED"
+        else
+            echo "Docker:              INSTALLED but daemon not running/accessible"
+        fi
+        echo "Wazuh Manager        [ UNKNOWN ] (Docker unavailable)"
+        echo "Wazuh Indexer        [ UNKNOWN ] (Docker unavailable)"
+        echo "Wazuh Dashboard      [ UNKNOWN ] (Docker unavailable)"
+    else
+        local m_state i_state d_state m_health
+        m_state=$(container_state "$MANAGER_CONTAINER")
+        i_state=$(container_state "$INDEXER_CONTAINER")
+        d_state=$(container_state "$DASHBOARD_CONTAINER")
+
+        print_component() {
+            local label="$1" state="$2"
+            case "$state" in
+                running)   printf "%-20s [ UP ]\n" "$label" ;;
+                exited)    printf "%-20s [ DOWN ]\n" "$label" ;;
+                not_found) printf "%-20s [ NOT DEPLOYED ]\n" "$label" ;;
+                *)         printf "%-20s [ UNKNOWN ]\n" "$label" ;;
+            esac
+        }
+        print_component "Wazuh Manager" "$m_state"
+        print_component "Wazuh Indexer" "$i_state"
+        print_component "Wazuh Dashboard" "$d_state"
+
+        echo ""
+        echo "Docker:"
+        printf "  %-20s %s\n" "$MANAGER_CONTAINER" "$m_state"
+        printf "  %-20s %s\n" "$INDEXER_CONTAINER" "$i_state"
+        printf "  %-20s %s\n" "$DASHBOARD_CONTAINER" "$d_state"
+
+        if [ "$m_state" = "running" ]; then
+            m_health=$(manager_process_health)
+            echo ""
+            echo "Wazuh Manager health (authd/analysisd/remoted, no CRITICAL logs): $m_health"
+        else
+            m_health="unreachable"
+        fi
+    fi
+
+    echo ""
+    echo "IOC Collector:"
+    if docker_daemon_up && docker image inspect "$IOC_IMAGE" >/dev/null 2>&1; then
+        echo "  Docker image:        built"
+    elif docker_daemon_up; then
+        echo "  Docker image:        NOT BUILT (run './bin/fast up' first)"
+    else
+        echo "  Docker image:        UNKNOWN (Docker unavailable)"
+    fi
+
+    if [ -f "$DB_FILE" ]; then
+        local summary count last_seen
+        summary=$(ioc_db_summary)
+        count="${summary%%|*}"
+        last_seen="${summary##*|}"
+        echo "  Database:            present ($DB_FILE)"
+        echo "  IOCs collected:      $count"
+        echo "  Most recent IOC:     $last_seen"
+    else
+        echo "  Database:            NOT INITIALIZED (no IOC collection has run yet)"
+        echo "  IOCs collected:      N/A"
+    fi
+
+    echo ""
+    echo "Overall:"
+    if ! docker_daemon_up; then
+        echo "  FAST                 [ UNKNOWN ] (Docker unavailable)"
+    elif [ "$(container_state "$MANAGER_CONTAINER")" = "not_found" ]; then
+        echo "  FAST                 [ NOT DEPLOYED ]"
+    elif [ "${m_health:-unreachable}" = "healthy" ] \
+         && [ "$(container_state "$INDEXER_CONTAINER")" = "running" ] \
+         && [ "$(container_state "$DASHBOARD_CONTAINER")" = "running" ]; then
+        echo "  FAST                 [ HEALTHY ]"
+    else
+        echo "  FAST                 [ DEGRADED ]"
+    fi
+}
+
+print_help() {
+    cat <<'EOF'
+FAST - Unified Operations CLI
+
+Usage:
+  ./bin/fast <command>
+
+Commands:
+  up          Deploy/start FAST
+  down        Stop FAST and preserve data
+  restart     Restart FAST
+  status      Show FAST and service status
+
+Options:
+  -h, --help   Show this help message
+
+Examples:
+  ./bin/fast up
+  ./bin/fast up --ip 100.87.195.65
+  ./bin/fast status
+  ./bin/fast down
+  ./bin/fast restart
+EOF
+}
+
+# ------------------------------------------------------------
+# Dispatcher
+# ------------------------------------------------------------
+
+main() {
+    local cmd="${1:-}"
+
+    case "$cmd" in
+        ""|-h|--help)
+            print_help
+            exit 0
+            ;;
+        up)
+            shift
+            cmd_up "$@"
+            ;;
+        down)
+            shift
+            cmd_down "$@"
+            ;;
+        restart)
+            shift
+            cmd_restart "$@"
+            ;;
+        status)
+            shift
+            cmd_status "$@"
+            ;;
+        *)
+            echo "[FAST] ERROR: Unknown command '$cmd'" >&2
+            echo "" >&2
+            print_help >&2
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
