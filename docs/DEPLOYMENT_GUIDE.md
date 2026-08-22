@@ -1,6 +1,6 @@
 # F.A.S.T. — Deployment Guide
 
-This document explains how to bring up the F.A.S.T. (OSINT IOC
+This document explains how to bring up the F.A.S.T. (TALON IOC
 Collector + Wazuh SIEM) environment from scratch in minutes.
 
 **Setup order:** Tailscale → deploy the SIEM → open the Dashboard →
@@ -326,10 +326,10 @@ crontab -e
 ```bash
 # Stop temporarily (data is kept)
 cd wazuh-docker/single-node
-docker compose down
+./bin/fast down
 
-# Start again
-docker compose up -d
+# Restart
+./bin/fast restart
 
 # Remove completely (including data)
 docker compose down -v
